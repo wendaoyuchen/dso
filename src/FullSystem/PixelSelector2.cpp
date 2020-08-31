@@ -47,9 +47,9 @@ PixelSelector::PixelSelector(int w, int h)
 	currentPotential=3;
 
 
-	gradHist = new int[100*(1+w/32)*(1+h/32)];
-	ths = new float[(w/32)*(h/32)+100];
-	thsSmoothed = new float[(w/32)*(h/32)+100];
+	gradHist = new int[100*(1+w/32)*(1+h/32)];//不理解为什么乘以100
+	ths = new float[(w/32)*(h/32)+100];//不理解为什么+100
+	thsSmoothed = new float[(w/32)*(h/32)+100];//同上
 
 	allowFast=false;
 	gradHistFrame=0;
@@ -65,7 +65,7 @@ PixelSelector::~PixelSelector()
 
 int computeHistQuantil(int* hist, float below)
 {
-	int th = hist[0]*below+0.5f;
+	int th = hist[0]*below+0.5f;//hist[0]为统计的点个数，below为0.5，th为点个数的一半
 	for(int i=0;i<90;i++)
 	{
 		th -= hist[i+1];
@@ -90,7 +90,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
-			float* map0 = mapmax0+32*x+32*y*w;
+			float* map0 = mapmax0+32*x+32*y*w;//把这块32x32的区域拿出来放到map0里
 			int* hist0 = gradHist;// + 50*(x+y*w32);
 			memset(hist0,0,sizeof(int)*50);
 
@@ -102,12 +102,13 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 				int g = sqrtf(map0[i+j*w]);
 				if(g>48) g=48;
 				hist0[g+1]++;
-				hist0[0]++;
+				hist0[0]++;//hist0[0]应该等于32x32，除了那些边缘块会少一些
 			}
 
 			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd;
 		}
 
+	//对32*32个计算的区域阈值进行3邻域的均值平滑
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
@@ -181,7 +182,7 @@ int PixelSelector::makeMaps(
 		// K / (pot+1)^2, where K is a scene-dependent constant.
 		// we will allow sub-selecting pixels by up to a quotia of 0.25, otherwise we will re-select.
 
-		if(fh != gradHistFrame) makeHists(fh);
+		if(fh != gradHistFrame) makeHists(fh);//将图像分成32x32块，计算每块的梯度中值作为选点的阈值
 
 		// select!
 		Eigen::Vector3i n = this->select(fh, map_out,currentPotential, thFactor);

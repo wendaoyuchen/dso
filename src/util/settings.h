@@ -145,7 +145,7 @@ extern float setting_overallEnergyTHWeight;
 extern float setting_coarseCutoffTH;
 
 extern float setting_minGradHistCut;
-extern float setting_minGradHistAdd;
+extern float setting_minGradHistAdd;//额外设定的全局恒定阈值
 extern float setting_gradDownweightPerLevel;
 extern bool  setting_selectDirectionDistribution;
 

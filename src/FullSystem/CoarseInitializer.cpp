@@ -129,6 +129,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 		Mat88f H,Hsc; Vec8f b,bsc;
 		resetPoints(lvl);
+        //计算Hessian矩阵等信息
 		Vec3f resOld = calcResAndGS(lvl, H, b, Hsc, bsc, refToNew_current, refToNew_aff_current, false);
 		applyStep(lvl);
 
@@ -177,7 +178,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			AffLight refToNew_aff_new = refToNew_aff_current;
 			refToNew_aff_new.a += inc[6];
 			refToNew_aff_new.b += inc[7];
-			doStep(lvl, lambda, inc);
+			doStep(lvl, lambda, inc);//更新点的逆深度信息
 
 
 			Mat88f H_new, Hsc_new; Vec8f b_new, bsc_new;
@@ -840,6 +841,8 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	delete[] statusMap;
 	delete[] statusMapB;
 
+	//k-最近邻建立kd-tree
+	//makeNN计算每个点最邻近的10个点 neighbours，在上一层的最邻近点 parent
 	makeNN();
 
 	thisToNext=SE3();

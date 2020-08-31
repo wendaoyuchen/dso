@@ -821,7 +821,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
 	// =========================== make Images / derivatives etc. =========================
 	fh->ab_exposure = image->exposure_time;
-    fh->makeImages(image->image, &Hcalib);
+    fh->makeImages(image->image, &Hcalib);//计算金字塔各层的梯度，梯度为当前像素上下光强度差方与左右光强差方之和
 
 
 
@@ -1035,7 +1035,7 @@ void FullSystem::makeNonKeyFrame( FrameHessian* fh)
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l);
 	}
 
-	traceNewCoarse(fh);
+	traceNewCoarse(fh);//更新未成熟点的逆深度
 	delete fh;
 }
 
