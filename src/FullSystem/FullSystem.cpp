@@ -802,6 +802,7 @@ void FullSystem::flagPointsForRemoval()
 void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 {
 
+    printf("addActiveFrame, test for github.\n");
     if(isLost) return;
 	boost::unique_lock<boost::mutex> lock(trackMutex);
 
