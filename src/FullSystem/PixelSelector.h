@@ -41,6 +41,7 @@ template<int pot>
 inline int gridMaxSelection(Eigen::Vector3f* grads, bool* map_out, int w, int h, float THFac)
 {
 
+    //每个pot内梯度大于阈值，且gradx / grady / gradx-grady /gradx+grady 中有最大值的则被选中
 	memset(map_out, 0, sizeof(bool)*w*h);
 
 	int numGood = 0;
@@ -198,6 +199,7 @@ inline int gridMaxSelection(Eigen::Vector3f* grads, bool* map_out, int w, int h,
 
 inline int makePixelStatus(Eigen::Vector3f* grads, bool* map, int w, int h, float desiredDensity, int recsLeft=5, float THFac = 1)
 {
+	//取网格内具有dx/dy最大梯度点
 	if(sparsityFactor < 1) sparsityFactor = 1;
 
 	int numGoodPoints;

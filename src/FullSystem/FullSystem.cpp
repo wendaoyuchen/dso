@@ -1218,6 +1218,7 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	firstFrame->pointHessiansOut.reserve(wG[0]*hG[0]*0.2f);
 
 
+    //使用第0层点的均值作为归一尺度
 	float sumID=1e-5, numID=1e-5;
 	for(int i=0;i<coarseInitializer->numPoints[0];i++)
 	{

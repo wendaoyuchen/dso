@@ -80,6 +80,11 @@ CoarseInitializer::~CoarseInitializer()
 
 bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IOWrap::Output3DWrapper*> &wraps)
 {
+    /*
+     * 当检测到位移足够大时，开始从金字塔顶层向底层使用LM优化位姿，光度参数，逆深度。
+     * 然后将逆深度由底层向顶层传播逆深度，用于下次优化做初值。
+     * 优化到满足位移的后5帧，位移小或中间的帧删除fh
+     */
 	newFrame = newFrameHessian;
 
     for(IOWrap::Output3DWrapper* ow : wraps)
@@ -94,6 +99,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 	regWeight = 0.8;//*freeDebugParam4;
 	couplingWeight = 1;//*freeDebugParam5;
 
+    //snapped体现的是两帧之间的位移，如果为false，表示位移不是足够大
 	if(!snapped)
 	{
 		thisToNext.translation().setZero();
@@ -119,17 +125,16 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 
 	Vec3f latestRes = Vec3f::Zero();
+    //从金字塔顶端向底层进行，体现了coarse-to-fine的思想
 	for(int lvl=pyrLevelsUsed-1; lvl>=0; lvl--)
 	{
 
-
-
 		if(lvl<pyrLevelsUsed-1)
-			propagateDown(lvl+1);
+			propagateDown(lvl+1);//逆深度在不同层之间传递使用parent点来作为关联，融合策略采用高斯归一化积
 
-		Mat88f H,Hsc; Vec8f b,bsc;
+		Mat88f H,Hsc; Vec8f b,bsc;//从命名上来看，H应该表示Hessian矩阵，b应该就是对应的Hx=b中的b,然后Hsc和bsc应该是经过舒尔补消元后的矩阵
 		resetPoints(lvl);
-        //计算Hessian矩阵等信息
+        //计算Hessian矩阵,雅克比和误差计算等消息
 		Vec3f resOld = calcResAndGS(lvl, H, b, Hsc, bsc, refToNew_current, refToNew_aff_current, false);
 		applyStep(lvl);
 
@@ -152,6 +157,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			std::cout << refToNew_current.log().transpose() << " AFF " << refToNew_aff_current.vec().transpose() <<"\n";
 		}
 
+        //迭代计算(H + lambda*D_T*D) * Δx = g
 		int iteration=0;
 		while(true)
 		{
@@ -164,7 +170,7 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 			bl = wM * bl * (0.01f/(w[lvl]*h[lvl]));
 
 
-			Vec8f inc;
+			Vec8f inc;//x_beta,八维，前六位是位姿，后两位是光度参数a,b
 			if(fixAffine)
 			{
 				inc.head<6>() = - (wM.toDenseMatrix().topLeftCorner<6,6>() * (Hl.topLeftCorner<6,6>().ldlt().solve(bl.head<6>())));
@@ -383,6 +389,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 		// sum over all residuals.
 		bool isGood = true;
 		float energy=0;
+        //对应那个八维残差的结构
 		for(int idx=0;idx<patternNum;idx++)
 		{
 			int dx = patternP[idx][0];
@@ -394,7 +401,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 			float v = pt[1] / pt[2];
 			float Ku = fxl * u + cxl;
 			float Kv = fyl * v + cyl;
-			float new_idepth = point->idepth_new/pt[2];
+			float new_idepth = point->idepth_new/pt[2];//这个其实是正确的，能够理解，符合公式
 
 			if(!(Ku > 1 && Kv > 1 && Ku < wl-2 && Kv < hl-2 && new_idepth > 0))
 			{
@@ -402,11 +409,11 @@ Vec3f CoarseInitializer::calcResAndGS(
 				break;
 			}
 
-			Vec3f hitColor = getInterpolatedElement33(colorNew, Ku, Kv, wl);
+			Vec3f hitColor = getInterpolatedElement33(colorNew, Ku, Kv, wl);//在新帧上投影点的像素值，dx,dy
 			//Vec3f hitColor = getInterpolatedElement33BiCub(colorNew, Ku, Kv, wl);
 
 			//float rlR = colorRef[point->u+dx + (point->v+dy) * wl][0];
-			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);
+			float rlR = getInterpolatedElement31(colorRef, point->u+dx, point->v+dy, wl);//参考帧上的像素值
 
 			if(!std::isfinite(rlR) || !std::isfinite((float)hitColor[0]))
 			{
@@ -415,29 +422,41 @@ Vec3f CoarseInitializer::calcResAndGS(
 			}
 
 
-			float residual = hitColor[0] - r2new_aff[0] * rlR - r2new_aff[1];
-			float hw = fabs(residual) < setting_huberTH ? 1 : setting_huberTH / fabs(residual);
-			energy += hw *residual*residual*(2-hw);
+			float residual = hitColor[0] - r2new_aff[0] * rlR - r2new_aff[1];//E = I2(p2) - exp(a)I1(p1) - b
+            //w_h = 1, if |r| < theta
+            //w_h = theta/|r|, if |r| >= theta
+			float hw = fabs(residual) < setting_huberTH ? 1 : setting_huberTH / fabs(residual);//Huber范数形式
+			energy += hw *residual*residual*(2-hw);//H(r) = w_h * r * r * (1 - w_h/2),这样energy就表示这八个点的总能量和
 
 
 
+            //求导部分主要包括三个，对光度误差求导，对相对位姿求导以及对逆深度的求导，
+            //https://blog.csdn.net/xxxlinttp/article/details/89379785
+            // ∂f(x)/∂ϵ = sqrt(w_h) * { ▽I_x * ρ2 * f_x,
+            //                          ▽I_y * ρ2 * f_y,
+            ​//                          -ρ2 * (▽I_x * f_x * u_2 - ▽I_y * f_y * v_2),
+            //                          -▽I_x * f_x * u_2 * v_2 - ▽I_y * f_y * (1 + v_2 * v_2),
+            //                          ▽I_x * f_x * (1 + u_2 * u_2) + ▽I_y * f_y * u_2 * v_2,
+            //                          -▽I_x * f_x * v_2 + ▽I_y * f_y * u_2 }
+			float dxdd = (t[0]-t[2]*u)/pt[2];//(t_x - u * t_z) / pt[2] ,这里的pt[2]应该是接在t的分母的，因为u已经除以过pt[2]了
+			float dydd = (t[1]-t[2]*v)/pt[2];//(t_x - v * t_z) / pt[2]
 
-			float dxdd = (t[0]-t[2]*u)/pt[2];
-			float dydd = (t[1]-t[2]*v)/pt[2];
-
-			if(hw < 1) hw = sqrtf(hw);
-			float dxInterp = hw*hitColor[1]*fxl;
-			float dyInterp = hw*hitColor[2]*fyl;
-			dp0[idx] = new_idepth*dxInterp;
-			dp1[idx] = new_idepth*dyInterp;
-			dp2[idx] = -new_idepth*(u*dxInterp + v*dyInterp);
-			dp3[idx] = -u*v*dxInterp - (1+v*v)*dyInterp;
-			dp4[idx] = (1+u*u)*dxInterp + u*v*dyInterp;
-			dp5[idx] = -v*dxInterp + u*dyInterp;
-			dp6[idx] = - hw*r2new_aff[0] * rlR;
-			dp7[idx] = - hw*1;
-			dd[idx] = dxInterp * dxdd  + dyInterp * dydd;
-			r[idx] = hw*residual;
+            //dp0 - dp5 是相对位姿求导的结果
+            //dp6, dp7是对光度误差的求偏导
+            //dd是对逆深度进行求导
+			if(hw < 1) hw = sqrtf(hw);//对hw求根号，雅各比矩阵的公共系数
+			float dxInterp = hw*hitColor[1]*fxl;//sqrt(w_h) * ▽I_x * f_x,
+			float dyInterp = hw*hitColor[2]*fyl;//sqrt(w_h) * ▽I_y * f_y
+			dp0[idx] = new_idepth*dxInterp;//▽I_x * ρ2 * f_x
+			dp1[idx] = new_idepth*dyInterp;//▽I_y * ρ2 * f_y
+			dp2[idx] = -new_idepth*(u*dxInterp + v*dyInterp);//-ρ2 * (▽I_x * f_x * u_2 - ▽I_y * f_y * v_2)
+			dp3[idx] = -u*v*dxInterp - (1+v*v)*dyInterp;//-▽I_x * f_x * u_2 * v_2 - ▽I_y * f_y * (1 + v_2 * v_2)
+			dp4[idx] = (1+u*u)*dxInterp + u*v*dyInterp;//▽I_x * f_x * (1 + u_2 * u_2) + ▽I_y * f_y * u_2 * v_2
+			dp5[idx] = -v*dxInterp + u*dyInterp;//-▽I_x * f_x * v_2 + ▽I_y * f_y * u_2
+			dp6[idx] = - hw*r2new_aff[0] * rlR;//∂f(x)/∂a
+			dp7[idx] = - hw*1;//∂f(x)/∂b
+			dd[idx] = dxInterp * dxdd  + dyInterp * dydd;//对逆深度的求导,
+			r[idx] = hw*residual;//sqrt(w_h)* r
 
 			float maxstep = 1.0f / Vec2f(dxdd*fxl, dydd*fyl).norm();
 			if(maxstep < point->maxstep) point->maxstep = maxstep;
@@ -523,6 +542,7 @@ Vec3f CoarseInitializer::calcResAndGS(
 
 
 	// compute alpha opt.
+    //当位移足够大，alphaOpt = 0
 	float alphaOpt;
 	if(alphaEnergy > alphaK*npts)
 	{

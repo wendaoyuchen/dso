@@ -108,7 +108,7 @@ void PixelSelector::makeHists(const FrameHessian* const fh)
 			ths[x+y*w32] = computeHistQuantil(hist0,setting_minGradHistCut) + setting_minGradHistAdd;
 		}
 
-	//对32*32个计算的区域阈值进行3邻域的均值平滑
+	//对32*32个计算的区域阈值进行3x3邻域的均值平滑
 	for(int y=0;y<h32;y++)
 		for(int x=0;x<w32;x++)
 		{
@@ -192,7 +192,9 @@ int PixelSelector::makeMaps(
 		quotia = numWant / numHave;
 
 		// by default we want to over-sample by 40% just to be sure.
+        // 相当于覆盖的面积, 每一个像素对应一个pot*pot
 		float K = numHave * (currentPotential+1) * (currentPotential+1);
+        // 除以目标点数，得到应该设置的pot大小
 		idealPotential = sqrtf(K/numWant)-1;	// round down.
 		if(idealPotential<1) idealPotential=1;
 
@@ -209,7 +211,7 @@ int PixelSelector::makeMaps(
 	//				currentPotential,
 	//				idealPotential);
 			currentPotential = idealPotential;
-			return makeMaps(fh,map_out, density, recursionsLeft-1, plot,thFactor);
+			return makeMaps(fh,map_out, density, recursionsLeft-1, plot,thFactor);//一个递归函数
 		}
 		else if(recursionsLeft>0 && quotia < 0.25)
 		{
@@ -299,9 +301,9 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 
 	Eigen::Vector3f const * const map0 = fh->dI;
 
-	float * mapmax0 = fh->absSquaredGrad[0];
-	float * mapmax1 = fh->absSquaredGrad[1];
-	float * mapmax2 = fh->absSquaredGrad[2];
+	float * mapmax0 = fh->absSquaredGrad[0];// 图像金字塔第一层梯度平方和 dx*dx + dy*dy
+	float * mapmax1 = fh->absSquaredGrad[1];// 金字塔第二层梯度平方和 dx*dx + dy*dy
+	float * mapmax2 = fh->absSquaredGrad[2];// 金字塔第三层梯度平方和 dx*dx + dy*dy
 
 
 	int w = wG[0];
@@ -310,6 +312,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 	int h = hG[0];
 
 
+    //取网格内随机方向梯度最大的点
 	const Vec2f directions[16] = {
 	         Vec2f(0,    1.0000),
 	         Vec2f(0.3827,    0.9239),
@@ -342,7 +345,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 		int my3 = std::min((4*pot), h-y4);
 		int mx3 = std::min((4*pot), w-x4);
 		int bestIdx4=-1; float bestVal4=0;
-		Vec2f dir4 = directions[randomPattern[n2] & 0xF];
+		Vec2f dir4 = directions[randomPattern[n2] & 0xF];//随机选择一个方向
 		for(int y3=0;y3<my3;y3+=(2*pot)) for(int x3=0;x3<mx3;x3+=(2*pot))
 		{
 			int x34 = x3+x4;
@@ -370,15 +373,15 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 					if(xf<4 || xf>=w-5 || yf<4 || yf>h-4) continue;
 
 
-					float pixelTH0 = thsSmoothed[(xf>>5) + (yf>>5) * thsStep];
+					float pixelTH0 = thsSmoothed[(xf>>5) + (yf>>5) * thsStep];//右移5位是因为之前按照32x32分块的
 					float pixelTH1 = pixelTH0*dw1;
 					float pixelTH2 = pixelTH1*dw2;
 
-
+                    //在0层上寻找梯度平方和 > thsSmoothed上对应位置的0.75倍的点，且该点在pot中最大
 					float ag0 = mapmax0[idx];
 					if(ag0 > pixelTH0*thFactor)
 					{
-						Vec2f ag0d = map0[idx].tail<2>();
+						Vec2f ag0d = map0[idx].tail<2>();//拿到改像素的dx,dy
 						float dirNorm = fabsf((float)(ag0d.dot(dir2)));
 						if(!setting_selectDirectionDistribution) dirNorm = ag0;
 
@@ -387,6 +390,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 					}
 					if(bestIdx3==-2) continue;
 
+                    //如果在0层中找不到，就到金字塔1层上取找，
 					float ag1 = mapmax1[(int)(xf*0.5f+0.25f) + (int)(yf*0.5f+0.25f)*w1];
 					if(ag1 > pixelTH1*thFactor)
 					{
@@ -399,6 +403,7 @@ Eigen::Vector3i PixelSelector::select(const FrameHessian* const fh,
 					}
 					if(bestIdx4==-2) continue;
 
+                    //如果在1层中找不到，就到金字塔2层上取找，
 					float ag2 = mapmax2[(int)(xf*0.25f+0.125) + (int)(yf*0.25f+0.125)*w2];
 					if(ag2 > pixelTH2*thFactor)
 					{

@@ -74,6 +74,9 @@ EIGEN_ALWAYS_INLINE Eigen::Vector3f getInterpolatedElement43(const Eigen::Vector
 
 EIGEN_ALWAYS_INLINE Eigen::Vector3f getInterpolatedElement33(const Eigen::Vector3f* const mat, const float x, const float y, const int width)
 {
+	//因为x,y为浮点数类型，所以求对应的像素点的时需要利用4个点做插值
+	//这4个点构成一个正方形，权重从左上到右下依次为 (1-dx-dy+dxdy)，(dx-dxdy)，(dy-dxdy)，dxdy
+	//这里更新的是像素值，dx和dy
 	int ix = (int)x;
 	int iy = (int)y;
 	float dx = x - ix;
@@ -125,6 +128,9 @@ EIGEN_ALWAYS_INLINE Eigen::Vector3f getInterpolatedElement33OverOr(const Eigen::
 
 EIGEN_ALWAYS_INLINE float getInterpolatedElement31(const Eigen::Vector3f* const mat, const float x, const float y, const int width)
 {
+	//因为x,y为浮点数类型，所以求对应的像素点的时需要利用4个点做插值
+	//这4个点构成一个正方形，权重从左上到右下依次为 (1-dx-dy+dxdy)，(dx-dxdy)，(dy-dxdy)，dxdy
+	//这里更新的只是像素值
 	int ix = (int)x;
 	int iy = (int)y;
 	float dx = x - ix;
