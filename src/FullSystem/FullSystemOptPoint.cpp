@@ -52,6 +52,7 @@ PointHessian* FullSystem::optimizeImmaturePoint(
 		ImmaturePoint* point, int minObs,
 		ImmaturePointTemporaryResidual* residuals)
 {
+	//迭代优化逆深度
 	int nres = 0;
 	for(FrameHessian* fh : frameHessians)
 	{

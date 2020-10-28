@@ -73,14 +73,16 @@ void FullSystem::flagFramesForMarginalization(FrameHessian* newFH)
 	for(int i=0;i<(int)frameHessians.size();i++)
 	{
 		FrameHessian* fh = frameHessians[i];
-		int in = fh->pointHessians.size() + fh->immaturePoints.size();
+		int in = fh->pointHessians.size() + fh->immaturePoints.size();//该帧主导的点以及该帧中未成熟的点均属于活跃点
 		int out = fh->pointHessiansMarginalized.size() + fh->pointHessiansOut.size();
 
 
+		//frameHessians.back()即为最新的帧，refToFh是一个二维向量，保存当前帧与最新帧之间的a,b之间的插值，该变量反应的是两帧之间的光度参数变化的剧烈程度。
 		Vec2 refToFh=AffLight::fromToVecExposure(frameHessians.back()->ab_exposure, fh->ab_exposure,
 				frameHessians.back()->aff_g2l(), fh->aff_g2l());
 
 
+		//判断该帧是否该边缘化的条件是：(1)该帧中活跃的点少于５%或者(2)与最新的帧相比光度参数变化剧烈|a_1 - a_2| > 0.7
 		if( (in < setting_minPointsRemaining *(in+out) || fabs(logf((float)refToFh[0])) > setting_maxLogAffFacInWindow)
 				&& ((int)frameHessians.size())-flagged > setting_minFrames)
 		{
@@ -105,6 +107,7 @@ void FullSystem::flagFramesForMarginalization(FrameHessian* newFH)
 	}
 
 	// marginalize one.
+	//如果删除这些边缘化帧后活动窗口内包含的帧数量还大于设定的最大帧数，那就删除距离最新帧最远的那帧
 	if((int)frameHessians.size()-flagged >= setting_maxFrames)
 	{
 		double smallestScore = 1;
@@ -114,6 +117,7 @@ void FullSystem::flagFramesForMarginalization(FrameHessian* newFH)
 
 		for(FrameHessian* fh : frameHessians)
 		{
+			//除最近的两帧外
 			if(fh->frameID > latest->frameID-setting_minFrameAge || fh->frameID == 0) continue;
 			//if(fh==frameHessians.front() == 0) continue;
 

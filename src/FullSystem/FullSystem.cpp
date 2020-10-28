@@ -525,6 +525,7 @@ void FullSystem::activatePointsMT_Reductor(
 void FullSystem::activatePointsMT()
 {
 
+    //根据ef->nPoints当前窗口已有的成熟点的数量，设置激活阈值
 	if(ef->nPoints < setting_desiredPointDensity*0.66)
 		currentMinActDist -= 0.8;
 	if(ef->nPoints < setting_desiredPointDensity*0.8)
@@ -552,17 +553,18 @@ void FullSystem::activatePointsMT()
 
 
 
-	FrameHessian* newestHs = frameHessians.back();
+	FrameHessian* newestHs = frameHessians.back();//获取最新帧
 
 	// make dist map.
 	coarseDistanceMap->makeK(&Hcalib);
-	coarseDistanceMap->makeDistanceMap(frameHessians, newestHs);
+	coarseDistanceMap->makeDistanceMap(frameHessians, newestHs);//将所有的成熟点投影到当前帧，生成距离地图
 
 	//coarseTracker->debugPlotDistMap("distMap");
 
 	std::vector<ImmaturePoint*> toOptimize; toOptimize.reserve(20000);
 
 
+    //将所有的未成熟点投影到当前帧
 	for(FrameHessian* host : frameHessians)		// go through all active frames
 	{
 		if(host == newestHs) continue;
@@ -592,8 +594,8 @@ void FullSystem::activatePointsMT()
 					|| ph->lastTraceStatus == IPS_SKIPPED
 					|| ph->lastTraceStatus == IPS_BADCONDITION
 					|| ph->lastTraceStatus == IPS_OOB )
-							&& ph->lastTracePixelInterval < 8
-							&& ph->quality > setting_minTraceQuality
+							&& ph->lastTracePixelInterval < 8 // 上一次的投影轨迹长度（极线）小于8
+							&& ph->quality > setting_minTraceQuality //次最小误差比最小误差的差值大于3
 							&& (ph->idepth_max+ph->idepth_min) > 0;
 
 
@@ -646,7 +648,7 @@ void FullSystem::activatePointsMT()
 		treadReduce.reduce(boost::bind(&FullSystem::activatePointsMT_Reductor, this, &optimized, &toOptimize, _1, _2, _3, _4), 0, toOptimize.size(), 50);
 
 	else
-		activatePointsMT_Reductor(&optimized, &toOptimize, 0, toOptimize.size(), 0, 0);
+		activatePointsMT_Reductor(&optimized, &toOptimize, 0, toOptimize.size(), 0, 0);//将待优化序列（toOptimize）里的未成熟点进行优化并激活
 
 
 	for(unsigned k=0;k<toOptimize.size();k++)
@@ -1049,26 +1051,27 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l);
 	}
 
-	traceNewCoarse(fh);
+	traceNewCoarse(fh);//利用当前帧对前面关键帧中的未成熟点进行逆深度更新
 
 	boost::unique_lock<boost::mutex> lock(mapMutex);
 
 	// =========================== Flag Frames to be Marginalized. =========================
-	flagFramesForMarginalization(fh);
+	flagFramesForMarginalization(fh);//标记后面需要边缘化（从活动窗口踢出）的帧
 
 
 	// =========================== add New Frame to Hessian Struct. =========================
 	fh->idx = frameHessians.size();
-	frameHessians.push_back(fh);
+	frameHessians.push_back(fh);//将当前帧加入到活动窗口中
 	fh->frameID = allKeyFramesHistory.size();
 	allKeyFramesHistory.push_back(fh->shell);
-	ef->insertFrame(fh, &Hcalib);
+	ef->insertFrame(fh, &Hcalib);//将当前帧插入到总能量函数中
 
-	setPrecalcValues();
+	setPrecalcValues();//计算一下该窗口中其他帧与当前帧之间的一些参数比如相对光度、距离等
 
 
 
 	// =========================== add new residuals for old points =========================
+    //遍历窗口中之前所有帧的成熟点,构建它们和新的关键帧的点帧误差PointFrameResidual，加入到ef中；
 	int numFwdResAdde=0;
 	for(FrameHessian* fh1 : frameHessians)		// go through all active frames
 	{
@@ -1089,7 +1092,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 
 	// =========================== Activate Points (& flag for marginalization). =========================
-	activatePointsMT();
+	activatePointsMT();//激活窗口中之前所有帧中符合条件的未成熟点，将其加入到ef中
 	ef->makeIDX();
 
 
@@ -1098,7 +1101,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// =========================== OPTIMIZE ALL =========================
 
 	fh->frameEnergyTH = frameHessians.back()->frameEnergyTH;
-	float rmse = optimize(setting_maxOptIterations);
+	float rmse = optimize(setting_maxOptIterations);//利用高斯牛顿法对活动窗口中的所有变量进行优化
 
 
 
@@ -1132,7 +1135,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 
 	// =========================== REMOVE OUTLIER =========================
-	removeOutliers();
+	removeOutliers();//去除外点
 
 
 
@@ -1164,12 +1167,12 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 			ef->lastNullspaces_scale,
 			ef->lastNullspaces_affA,
 			ef->lastNullspaces_affB);
-	ef->marginalizePointsF();
+	ef->marginalizePointsF();//边缘化不需要的点
 
 
 
 	// =========================== add new Immature points & new residuals =========================
-	makeNewTraces(fh, 0);
+	makeNewTraces(fh, 0);//在当前帧中提取未成熟点
 
 
 
@@ -1187,7 +1190,10 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 
 	for(unsigned int i=0;i<frameHessians.size();i++)
 		if(frameHessians[i]->flaggedForMarginalization)
-			{marginalizeFrame(frameHessians[i]); i=0;}
+			{
+                marginalizeFrame(frameHessians[i]); //边缘化不需要的帧
+                i=0;
+            }
 
 
 
